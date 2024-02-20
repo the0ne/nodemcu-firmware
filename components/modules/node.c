@@ -17,6 +17,9 @@
 #include "rom/rtc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
+#include "esp_flash.h"
+#include "soc/rtc.h"
+#include "esp_pm.h"
 
 static void restart_callback(TimerHandle_t timer) {
   (void)timer;
@@ -35,7 +38,7 @@ static int default_onerror(lua_State *L) {
     restart_timer = xTimerCreate(
         "error_restart", pdMS_TO_TICKS(2000), pdFALSE, NULL, restart_callback);
     if (xTimerStart(restart_timer, portMAX_DELAY) != pdPASS)
-      esp_restart(); // should never happen, but Justin Case fallback
+      esp_restart(); // should never happen, but just in case fallback
   }
   return 0;
 }
@@ -147,6 +150,40 @@ static int node_bootreason( lua_State *L)
 }
 
 #if defined(CONFIG_IDF_TARGET_ESP32)
+// Lua: freq = node.getcpufreq()
+static int node_getcpufreq(lua_State* L)
+{
+  rtc_cpu_freq_config_t config;
+  rtc_clk_cpu_freq_get_config(&config);
+
+  lua_pushinteger(L, config.freq_mhz);
+  return 1;
+}
+
+// Lua: setcpufreq(mhz)
+// mhz is either 80, 160 or 240
+static int node_setcpufreq(lua_State* L)
+{
+  unsigned max_freq = luaL_checkinteger(L, 1);
+  unsigned min_freq = luaL_optinteger (L, 2, max_freq);
+
+  esp_pm_config_t pm_config = {
+    .max_freq_mhz = max_freq,
+    .min_freq_mhz = min_freq,
+#ifndef CONFIG_FREERTOS_USE_TICKLESS_IDLE
+    .light_sleep_enable = false
+#else
+    .light_sleep_enable = true
+#endif
+  };
+
+  esp_err_t err = esp_pm_configure(&pm_config);
+  if (err != ESP_OK)
+    return luaL_error (L, "failed to set cpu speed, code %d", err);
+
+  return node_getcpufreq(L);
+}
+
 // Lua: node.chipid()
 static int node_chipid( lua_State *L )
 {
@@ -161,6 +198,19 @@ static int node_chipid( lua_State *L )
   char chipid[17] = { 0 };
   sprintf(chipid, "0x%llx", cid);
   lua_pushstring(L, chipid);
+  return 1;
+}
+
+static int node_flashid( lua_State* L )
+{
+  uint64_t flash_unique_id;
+  esp_err_t err = esp_flash_read_unique_chip_id(esp_flash_default_chip, &flash_unique_id);
+  if (err != ESP_OK)
+    return luaL_error (L, "failed to read flash id, code %d", err);
+
+  char flashid[19] = { 0 };
+  sprintf(flashid, "0x%llx", flash_unique_id);
+  lua_pushstring(L, flashid);
   return 1;
 }
 #endif
@@ -857,7 +907,13 @@ LROT_END(node_wakeup, NULL, 0)
 LROT_BEGIN(node, NULL, 0)
   LROT_FUNCENTRY( bootreason, node_bootreason )
 #if defined(CONFIG_IDF_TARGET_ESP32)
+  LROT_NUMENTRY ( CPU80MHZ,   80 )
+  LROT_NUMENTRY ( CPU160MHZ,  160 )
+  LROT_NUMENTRY ( CPU240MHZ,  240 )
+  LROT_FUNCENTRY( setcpufreq, node_setcpufreq )
+  LROT_FUNCENTRY( getcpufreq, node_getcpufreq )
   LROT_FUNCENTRY( chipid,     node_chipid )
+  LROT_FUNCENTRY( flashid,    node_flashid )
 #endif
   LROT_FUNCENTRY( compile,    node_compile )
   LROT_FUNCENTRY( dsleep,     node_dsleep )
