@@ -82,6 +82,13 @@ menu "NodeMCU modules"
             store the directory path as part of the filename just as SPIFFS
             does.
 
+    config NODEMCU_CMODULE_CAN
+        depends on IDF_TARGET_ESP32
+        bool "CAN module"
+        default "n"
+        help
+            Includes the CAN module.
+
     config NODEMCU_CMODULE_ETH
         depends on IDF_TARGET_ESP32
         select ETH_USE_ESP32_EMAC

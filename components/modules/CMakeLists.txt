@@ -81,7 +81,6 @@ idf_component_register(
     "app_update"
     "base_nodemcu"
     "bt"
-    "driver_can"
     "esp_eth"
     "esp_http_client"
     "esp_http_server"
